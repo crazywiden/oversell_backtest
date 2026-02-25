@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(afplay:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(git status)",
+      "Bash(git diff)",
+      "Read",
+      "Write",
+      "WebSearch",
+      "WebFetch(domain:pypi.org)"
+    ],
+    "deny": [
+      "Read(**/poetry.lock)",
+      "Read(**/package-lock.json)",
+      "Read(**/node_modules/**)",
+      "Read(**/__pycache__/**)",
+      "Bash(rm -rf:*)",
+      "Read(.env*)",
+      "Write(.env*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "afplay /System/Library/Sounds/Glass.aiff"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "afplay /System/Library/Sounds/Funk.aiff"
+          }
+        ]
+      }
+    ]
+  }
+}
