@@ -8,7 +8,24 @@ Backtesting framework for oversell/oversold trading strategies in the U.S. stock
 
 ## Python Environment
 
-This project uses a dedicated virtual environment. Use the appropriate venv Python binary for running scripts rather than the system `python3`. Check for a `venv/` or similar directory at the repo root once it's created.
+Use `/Users/widen/Documents/helpful/code/helpful_venv/bin/python3` (Python 3.14, shared venv).
+
+Key commands:
+```bash
+# Preprocess data (required before first run)
+/Users/widen/Documents/helpful/code/helpful_venv/bin/python3 data/v1/preprocess.py --source fake
+
+# Run backtest (default hyperparameters)
+/Users/widen/Documents/helpful/code/helpful_venv/bin/python3 -m backtesting.run
+
+# Run with custom hyperparameters
+/Users/widen/Documents/helpful/code/helpful_venv/bin/python3 -m backtesting.run --N 30 --K 7 --w1 -1.5
+
+# Launch Streamlit frontend (requires Python 3.12 — protobuf incompatible with 3.14)
+# streamlit run frontend/app.py
+```
+
+**Note:** Streamlit requires Python ≤ 3.12 (protobuf's C extension breaks on 3.14). The backtesting engine and reporting work fully on 3.14.
 
 ## Custom Agents
 
