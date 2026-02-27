@@ -21,6 +21,9 @@ class BacktestParams:
     stop_loss_rate: float = 0.03
     K: int = 5
     V: int = 500_000
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    data_path: str = "data/v1/prices.csv"
 
 
 @dataclasses.dataclass
@@ -37,7 +40,7 @@ class RunResult:
     duration_seconds: Optional[float] = None
 
 
-def run_backtest(params: BacktestParams) -> RunResult:
+def run_backtest(params: BacktestParams, progress_callback=None, status_callback=None) -> RunResult:
     """Run the backtesting engine with the given parameters."""
     config = BacktestConfig(
         N=params.N,
@@ -47,11 +50,14 @@ def run_backtest(params: BacktestParams) -> RunResult:
         stop_loss_rate=params.stop_loss_rate,
         K=params.K,
         V=params.V,
+        start_date=params.start_date,
+        end_date=params.end_date,
+        data_path=params.data_path,
     )
 
     t0 = time.time()
     try:
-        config_dict = execute_run(config)
+        config_dict = execute_run(config, progress_callback=progress_callback, status_callback=status_callback)
     except Exception as exc:
         return RunResult(
             run_id="",

@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Optional
 
 
 @dataclasses.dataclass
@@ -15,6 +16,10 @@ class BacktestConfig:
 
     # Universe filter
     V: int = 500_000                # Minimum volume filter (shares)
+
+    # Date filter (ISO strings "YYYY-MM-DD"; None means no limit)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
     # Capital
     initial_capital: float = 500_000.0

@@ -4,3 +4,6 @@ results/*/
 venv/
 __pycache__/
 *.pyc
+
+*.csv
+.DS_Store

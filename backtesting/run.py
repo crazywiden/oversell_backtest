@@ -29,12 +29,20 @@ def make_run_id() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def execute_run(config: BacktestConfig) -> dict:
+def execute_run(config: BacktestConfig, progress_callback=None, status_callback=None) -> dict:
     """
     Full pipeline: load data -> compute signals -> run simulation -> save outputs.
 
+    progress_callback(i, n, date, n_positions, n_trades) — called each simulation day.
+    status_callback(message, fraction) — called at each pipeline phase transition.
+
     Returns config dict with metrics appended (same as config.json contents).
     """
+    def _status(msg: str, pct: float) -> None:
+        print(f"[{config.run_id}] {msg}")
+        if status_callback is not None:
+            status_callback(msg, pct)
+
     if not config.run_id:
         config.run_id = make_run_id()
 
@@ -42,15 +50,18 @@ def execute_run(config: BacktestConfig) -> dict:
     run_dir.mkdir(parents=True, exist_ok=True)
     config.output_dir = str(run_dir)
 
-    print(f"[{config.run_id}] Loading data from {config.data_path}...")
+    _status(f"Loading data from {config.data_path}...", 0.05)
     df = load_price_data(config)
 
-    print(f"[{config.run_id}] Computing OS scores (N={config.N})...")
+    _status(f"Computing OS scores (N={config.N}, w1={config.w1}, w2={config.w2})...", 0.15)
     df = compute_os_scores(df, config)
 
-    print(f"[{config.run_id}] Running simulation...")
-    trades_df, portfolio_df = run_backtest(df, config)
+    n_tickers = df["ticker"].nunique()
+    n_days = df["date"].nunique()
+    _status(f"Simulating {n_tickers} tickers over {n_days} trading days...", 0.25)
+    trades_df, portfolio_df = run_backtest(df, config, progress_callback=progress_callback)
 
+    _status("Computing performance metrics...", 0.90)
     metrics = compute_metrics(portfolio_df, trades_df)
     print(
         f"[{config.run_id}] Done. "
@@ -60,7 +71,7 @@ def execute_run(config: BacktestConfig) -> dict:
         f"MaxDD: {metrics['max_drawdown_pct']:.2f}%"
     )
 
-    # Save CSVs
+    _status("Saving trades and portfolio CSV files...", 0.93)
     trades_df.to_csv(run_dir / "trades.csv", index=False)
     portfolio_df.to_csv(run_dir / "portfolio.csv", index=False)
 
@@ -70,7 +81,7 @@ def execute_run(config: BacktestConfig) -> dict:
     with open(run_dir / "config.json", "w") as f:
         json.dump(config_dict, f, indent=2)
 
-    # Generate HTML report
+    _status("Generating HTML report...", 0.96)
     save_report(
         run_id=config.run_id,
         config_dict=config_dict,

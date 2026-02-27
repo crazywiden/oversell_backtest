@@ -47,3 +47,22 @@ Use these specialized subagents via the Task tool for appropriate work:
 - Python with pandas, numpy, scipy, statsmodels, sklearn, matplotlib
 - Separate concerns: data ingestion → signal generation → backtesting engine → analysis/reporting
 - Use vectorized operations over loops
+
+## Architecture
+
+Pipeline: `data/v1/preprocess.py` → `backtesting/data_loader.py` → `backtesting/signals.py` → `backtesting/engine.py` → `results/report.py`
+
+**Module responsibilities:**
+- `backtesting/config.py` — `BacktestConfig` dataclass (all hyperparameters)
+- `backtesting/data_loader.py` — loads/validates `data/v1/prices.csv`
+- `backtesting/signals.py` — adds `D_r`, `D_v`, `os_score` columns; formula: `OS = w1*D(r) + w2*D(v)`
+- `backtesting/engine.py` — day-by-day simulation with 4-phase ordering: increment days_held → check exits → new entries (T-1 scores, buy at T close) → daily snapshot
+- `results/report.py` — `compute_metrics()` + `save_report()` (Plotly HTML); **lives in `results/`, not `backtesting/`**
+- `frontend/engine_bridge.py` — calls `execute_run()` from `backtesting/run.py` for the Streamlit UI
+
+**Data:**
+- Real Sharadar CSVs (`SHARADAR_SEP.csv`, `SHARADAR_TICKERS.csv`) go in `data/raw/`
+- Synthetic equivalents live in `data/fake_data/`
+- Preprocessing outputs `data/v1/prices.csv` (14 cols: ticker, date, open/high/low/close/volume, dividends, name, sector, industry, is_delisted, close_ffill, is_halt)
+
+**Run outputs** (`results/{run_id}/`): `config.json` (hyperparams + metrics), `trades.csv`, `portfolio.csv`, `report.html`

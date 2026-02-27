@@ -24,4 +24,10 @@ def load_price_data(config: BacktestConfig) -> pd.DataFrame:
         raise ValueError(f"prices.csv is missing columns: {missing}")
 
     df = df.sort_values(["ticker", "date"]).reset_index(drop=True)
+
+    if config.start_date:
+        df = df[df["date"] >= pd.Timestamp(config.start_date)]
+    if config.end_date:
+        df = df[df["date"] <= pd.Timestamp(config.end_date)]
+
     return df

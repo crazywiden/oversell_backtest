@@ -2,10 +2,13 @@
 Preprocess Sharadar SEP + TICKERS CSVs into prices.csv for the backtesting engine.
 
 Usage:
-    python data/v1/preprocess.py --source fake
-    python data/v1/preprocess.py --source raw
+    python data/v2/preprocess.py --source fake
+    python data/v2/preprocess.py --source raw
 
-Output: data/v1/prices.csv (14 columns, sorted by ticker+date)
+Output: data/v2/prices.csv (14 columns, sorted by ticker+date)
+
+Changes from v1:
+    - Excludes GBBKW and GBBKR from the dataset
 """
 
 import argparse
@@ -16,9 +19,11 @@ import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DATA_V1 = REPO_ROOT / "data" / "v1"
+DATA_V2 = REPO_ROOT / "data" / "v2"
 FAKE_DIR = REPO_ROOT / "data" / "fake_data"
 RAW_DIR = REPO_ROOT / "data" / "raw"
+
+EXCLUDED_TICKERS = {"GBBKW", "GBBKR"}
 
 OUTPUT_COLUMNS = [
     "ticker", "date", "open", "high", "low", "close", "volume",
@@ -85,11 +90,11 @@ def handle_missing(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def write_output(df: pd.DataFrame) -> Path:
-    """Write final prices.csv to data/v1/."""
+    """Write final prices.csv to data/v2/."""
     out = df[OUTPUT_COLUMNS].copy()
     out["date"] = out["date"].dt.strftime("%Y-%m-%d")
     out = out.sort_values(["ticker", "date"]).reset_index(drop=True)
-    out_path = DATA_V1 / "prices.csv"
+    out_path = DATA_V2 / "prices.csv"
     out.to_csv(out_path, index=False)
     return out_path
 
@@ -98,6 +103,9 @@ def main(source: str) -> None:
     print(f"Loading {source} data...")
     prices, tickers = load_data(source)
     print(f"  Loaded {len(prices)} price rows, {len(tickers)} ticker rows")
+
+    prices = prices[~prices["ticker"].isin(EXCLUDED_TICKERS)]
+    print(f"  Excluded tickers: {sorted(EXCLUDED_TICKERS)}")
 
     tickers_filtered = filter_tickers(tickers)
     print(f"  Filtered to {len(tickers_filtered)} common stock tickers")

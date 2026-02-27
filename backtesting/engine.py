@@ -52,7 +52,7 @@ def check_exit(pos: Position, row: pd.Series, config: BacktestConfig) -> tuple[b
     return False, 0.0, ""
 
 
-def run_backtest(df: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_backtest(df: pd.DataFrame, config: BacktestConfig, progress_callback=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Day-by-day simulation with 4-phase ordering:
       PHASE 1: INCREMENT days_held for all existing positions
@@ -63,6 +63,7 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFrame
     Returns: (trades_df, portfolio_df)
     """
     dates = sorted(df["date"].unique())
+    n_dates = len(dates)
     # Pre-build lookup dict for O(1) per-stock access per date
     date_to_df = {d: grp.set_index("ticker") for d, grp in df.groupby("date")}
 
@@ -72,6 +73,8 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig) -> tuple[pd.DataFrame
     snapshots: list[dict] = []
 
     for i, today in enumerate(dates):
+        if progress_callback is not None:
+            progress_callback(i, n_dates, today, len(positions), len(trades))
         today_df = date_to_df[today]
         prev_df = date_to_df.get(dates[i - 1]) if i > 0 else None
 

@@ -4,12 +4,36 @@ Oversell Backtest — Streamlit frontend.
 Run: streamlit run frontend/app.py
 """
 
+import itertools
+from pathlib import Path
+
+import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from frontend.engine_bridge import BacktestParams, run_backtest
 
 st.set_page_config(page_title="Oversell Backtest", layout="centered")
 st.title("Oversell Backtest")
+
+# ---------------------------------------------------------------------------
+# Data path selector
+# ---------------------------------------------------------------------------
+_repo_root = Path(__file__).resolve().parents[1]
+_detected = sorted(str(p.relative_to(_repo_root)) for p in _repo_root.glob("data/*/prices.csv"))
+_options = _detected + ["Custom…"]
+
+if "data_path" not in st.session_state:
+    st.session_state["data_path"] = _detected[0] if _detected else "data/v1/prices.csv"
+
+selected = st.selectbox("Dataset", _options,
+                        index=_options.index(st.session_state["data_path"])
+                        if st.session_state["data_path"] in _options else len(_options) - 1)
+
+if selected == "Custom…":
+    st.text_input("Custom data path", key="data_path")
+else:
+    st.session_state["data_path"] = selected
 
 # ---------------------------------------------------------------------------
 # Hyperparameter form
@@ -42,6 +66,13 @@ with st.form("backtest_form"):
         "V — Min daily volume", min_value=0, max_value=10_000_000, value=500_000, step=10_000
     )
 
+    st.subheader("Data Filtering")
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        start_date = st.date_input("Start date", value=None)
+    with col_d2:
+        end_date = st.date_input("End date", value=None)
+
     # Cross-field validation warning (non-blocking)
     if stop_loss_rate >= win_take_rate:
         st.warning(
@@ -63,9 +94,28 @@ if submitted:
         stop_loss_rate=float(stop_loss_rate),
         K=int(K),
         V=int(V),
+        start_date=str(start_date) if start_date else None,
+        end_date=str(end_date) if end_date else None,
+        data_path=st.session_state["data_path"],
     )
-    with st.spinner("Running backtest..."):
-        result = run_backtest(params)
+    progress_bar = st.progress(0.0, text="Starting backtest...")
+
+    def _on_status(msg: str, pct: float) -> None:
+        progress_bar.progress(pct, text=msg)
+
+    def _on_progress(i: int, n: int, date, n_positions: int, n_trades: int) -> None:
+        # Simulation occupies 25%–90% of the overall pipeline
+        pct = 0.25 + 0.65 * (i / n) if n else 0.25
+        date_str = str(date)[:10]
+        text = (
+            f"Simulating {date_str}  ·  Day {i + 1} / {n}"
+            f"  ·  {n_positions} open positions"
+            f"  ·  {n_trades} trades closed"
+        )
+        progress_bar.progress(pct, text=text)
+
+    result = run_backtest(params, progress_callback=_on_progress, status_callback=_on_status)
+    progress_bar.progress(1.0, text="Done")
     st.session_state["last_result"] = result
 
 # ---------------------------------------------------------------------------
@@ -102,3 +152,118 @@ if "last_result" in st.session_state:
         st.markdown("**Report saved to:**")
         st.code(result.report_path)
         st.caption("Open the path above in your browser to view the interactive report.")
+
+        # ---------------------------------------------------------------------------
+        # Trade analysis
+        # ---------------------------------------------------------------------------
+        trades_path = Path(result.report_path).parent / "trades.csv"
+        if trades_path.exists():
+            trades = pd.read_csv(trades_path)
+        else:
+            trades = pd.DataFrame()
+
+        if len(trades) > 0:
+            st.subheader("Trade Analysis")
+
+            wins = trades[trades["pnl"] > 0]
+            losses = trades[trades["pnl"] < 0]
+
+            win_rate = len(wins) / len(trades) * 100
+
+            if len(losses) > 0 and losses["pnl"].sum() != 0:
+                profit_factor = wins["pnl"].sum() / abs(losses["pnl"].sum())
+                profit_factor_str = f"{profit_factor:.2f}"
+            else:
+                profit_factor_str = "∞"
+
+            if len(wins) > 0 and len(losses) > 0:
+                payoff_ratio = wins["pnl_pct"].mean() / abs(losses["pnl_pct"].mean())
+                payoff_ratio_str = f"{payoff_ratio:.2f}"
+            else:
+                payoff_ratio_str = "—"
+
+            pnl_sorted = trades.sort_values("entry_date")["pnl"]
+            is_loss = (pnl_sorted < 0).tolist()
+            max_consec = max(
+                (sum(1 for _ in g) for k, g in itertools.groupby(is_loss) if k),
+                default=0,
+            )
+
+            col_e, col_f, col_g, col_h = st.columns(4)
+            col_e.metric("Win Rate", f"{win_rate:.1f}%")
+            col_f.metric("Profit Factor", profit_factor_str)
+            col_g.metric("Payoff Ratio", payoff_ratio_str)
+            col_h.metric("Max Consec. Losses", str(max_consec))
+
+            col_l, col_r = st.columns(2)
+
+            with col_l:
+                p5 = trades["pnl_pct"].quantile(0.05)
+                p95 = trades["pnl_pct"].quantile(0.95)
+                fig_hist = px.histogram(
+                    trades,
+                    x="pnl_pct",
+                    nbins=30,
+                    title="Return Distribution",
+                    labels={"pnl_pct": "Return"},
+                )
+                fig_hist.update_xaxes(tickformat=".1%")
+                fig_hist.update_layout(showlegend=False, height=300, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig_hist, use_container_width=True)
+                st.caption(f"5th/95th percentile: {p5:.1%} / {p95:.1%}")
+
+            with col_r:
+                reason_counts = trades["exit_reason"].value_counts().reset_index()
+                reason_counts.columns = ["exit_reason", "count"]
+                fig_reason = px.bar(
+                    reason_counts,
+                    x="exit_reason",
+                    y="count",
+                    title="Exit Reason Distribution",
+                    labels={"exit_reason": "Reason", "count": "# Trades"},
+                )
+                fig_reason.update_layout(height=300, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig_reason, use_container_width=True)
+
+            col_l2, col_r2 = st.columns(2)
+
+            with col_l2:
+                reason_pnl = (
+                    trades.groupby("exit_reason")["pnl_pct"]
+                    .mean()
+                    .reset_index()
+                    .rename(columns={"pnl_pct": "avg_return"})
+                )
+                fig_reason_pnl = px.bar(
+                    reason_pnl,
+                    x="exit_reason",
+                    y="avg_return",
+                    title="Avg Return by Exit Reason",
+                    labels={"exit_reason": "Reason", "avg_return": "Avg Return"},
+                    color="avg_return",
+                    color_continuous_scale=["red", "lightgray", "green"],
+                    color_continuous_midpoint=0,
+                )
+                fig_reason_pnl.update_yaxes(tickformat=".1%")
+                fig_reason_pnl.update_layout(
+                    height=300, margin=dict(t=40, b=0, l=0, r=0), showlegend=False
+                )
+                st.plotly_chart(fig_reason_pnl, use_container_width=True)
+
+            with col_r2:
+                trades["month"] = pd.to_datetime(trades["entry_date"]).dt.to_period("M").astype(str)
+                monthly = trades.groupby("month")["pnl"].sum().reset_index()
+                monthly["color"] = monthly["pnl"].apply(lambda x: "profit" if x >= 0 else "loss")
+                fig_monthly = px.bar(
+                    monthly,
+                    x="month",
+                    y="pnl",
+                    title="Monthly P&L ($)",
+                    labels={"month": "Month", "pnl": "P&L ($)"},
+                    color="color",
+                    color_discrete_map={"profit": "green", "loss": "red"},
+                )
+                fig_monthly.update_layout(
+                    height=300, margin=dict(t=40, b=0, l=0, r=0), showlegend=False
+                )
+                st.plotly_chart(fig_monthly, use_container_width=True)
