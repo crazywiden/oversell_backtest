@@ -84,6 +84,30 @@ def handle_missing(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def fix_price_outliers(df: pd.DataFrame, max_gap: float = 10.0) -> pd.DataFrame:
+    """
+    Clip open/high/low/close values that are implausibly far from the prior close.
+
+    Real single-day gaps of >10x the prior close are data errors (e.g. a $9 stock
+    showing open=$2000). We replace the offending OHLC values with the prior close
+    so the day is treated as a flat/no-gap day rather than silently distorting returns.
+
+    max_gap: maximum allowed ratio of any OHLC value to the prior day's close.
+             Default 10x catches errors like $8.94→$2000 while preserving
+             legitimate large gaps (e.g. 50% COVID bounces, acquisition jumps).
+    """
+    df = df.copy().sort_values(["ticker", "date"]).reset_index(drop=True)
+    prev_close = df.groupby("ticker")["close"].shift(1)
+    for col in ["open", "high", "low", "close"]:
+        ratio = df[col] / prev_close
+        bad = ratio > max_gap
+        n_bad = bad.sum()
+        if n_bad > 0:
+            print(f"  fix_price_outliers: clipping {n_bad} {col} values (ratio > {max_gap}x prev close)")
+            df.loc[bad, col] = prev_close[bad]
+    return df
+
+
 def write_output(df: pd.DataFrame) -> Path:
     """Write final prices.csv to data/v1/."""
     out = df[OUTPUT_COLUMNS].copy()
@@ -108,6 +132,8 @@ def main(source: str) -> None:
     df = handle_missing(df)
     n_halts = df["is_halt"].sum()
     print(f"  Forward-filled {n_halts} halt days")
+
+    df = fix_price_outliers(df)
 
     out_path = write_output(df)
     print(f"  Written: {out_path}")

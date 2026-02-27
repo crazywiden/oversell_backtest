@@ -16,6 +16,8 @@ class BacktestConfig:
 
     # Universe filter
     V: int = 500_000                # Minimum volume filter (shares)
+    min_price: float = 1.00         # Minimum entry price (filters penny stocks / bankrupt OTC names)
+    max_position_adv_pct: float = 0.10  # Max position size as % of T-1 volume (liquidity cap)
 
     # Date filter (ISO strings "YYYY-MM-DD"; None means no limit)
     start_date: Optional[str] = None

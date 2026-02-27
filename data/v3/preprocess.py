@@ -23,7 +23,7 @@ DATA_V3 = REPO_ROOT / "data" / "v3"
 FAKE_DIR = REPO_ROOT / "data" / "fake_data"
 RAW_DIR = REPO_ROOT / "data" / "raw"
 
-EXCLUDED_TICKERS = {"GBBKW", "GBBKR"}
+EXCLUDED_TICKERS = {"GBBKW", "GBBKR", "MFA", "IVR"}
 EXCLUDED_MARKET_CAPS = {"1 - Nano", "2 - Micro", "3 - Small"}
 
 OUTPUT_COLUMNS = [

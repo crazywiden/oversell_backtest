@@ -106,6 +106,7 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig, progress_callback=Non
             held_tickers = {p.ticker for p in positions}
             candidates = prev_df[
                 (prev_df["volume"] > config.V) &
+                (prev_df["close"] >= config.min_price) &
                 (prev_df["os_score"].notna()) &
                 (~prev_df.index.isin(held_tickers)) &
                 (prev_df.index.isin(today_df.index))
@@ -115,6 +116,9 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig, progress_callback=Non
                 allocation = cash / open_slots
                 buy_price = today_df.loc[ticker, "close"]
                 shares = int(allocation // buy_price)
+                # Cap at max_position_adv_pct of T-1 volume (liquidity guard)
+                adv_cap = int(prev_df.loc[ticker, "volume"] * config.max_position_adv_pct)
+                shares = min(shares, adv_cap)
                 if shares > 0:
                     cost = shares * buy_price
                     cash -= cost

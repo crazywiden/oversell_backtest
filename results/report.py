@@ -7,6 +7,7 @@ Public API:
 """
 
 import html
+import itertools
 import json
 import math
 from pathlib import Path
@@ -36,6 +37,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .negative { color: #ef4444; }
   .neutral { color: #e2e8f0; }
   .chart-container { background: #1e293b; border-radius: 8px; margin-bottom: 20px; padding: 8px; }
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
   .section-title { font-size: 1rem; font-weight: 600; margin: 24px 0 12px; color: #cbd5e1; }
   .filter-bar { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
   .filter-bar input, .filter-bar select {
@@ -81,6 +83,32 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 <div class="chart-container" id="chart-daily-return"></div>
 <div class="chart-container" id="chart-total-value"></div>
+
+<div class="section-title">Trade Analysis</div>
+<div class="metrics">
+  <div class="metric-card">
+    <div class="metric-label">Win Rate</div>
+    <div class="metric-value __WIN_RATE_CLASS__">__WIN_RATE__</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Profit Factor</div>
+    <div class="metric-value __PROFIT_FACTOR_CLASS__">__PROFIT_FACTOR__</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Payoff Ratio</div>
+    <div class="metric-value neutral">__PAYOFF_RATIO__</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Max Consec. Losses</div>
+    <div class="metric-value neutral">__MAX_CONSEC_LOSSES__</div>
+  </div>
+</div>
+<div class="chart-grid">
+  <div class="chart-container" id="chart-return-dist"></div>
+  <div class="chart-container" id="chart-exit-reason"></div>
+  <div class="chart-container" id="chart-exit-pnl"></div>
+  <div class="chart-container" id="chart-monthly-pnl"></div>
+</div>
 
 <div class="section-title">Trades</div>
 <div class="filter-bar">
@@ -133,6 +161,18 @@ Plotly.newPlot('chart-daily-return', dailyReturnSpec.data, dailyReturnSpec.layou
 
 var totalValueSpec = JSON.parse('__TOTAL_VALUE_JSON__');
 Plotly.newPlot('chart-total-value', totalValueSpec.data, totalValueSpec.layout, {responsive: true});
+
+var returnDistSpec = JSON.parse('__RETURN_DIST_JSON__');
+Plotly.newPlot('chart-return-dist', returnDistSpec.data, returnDistSpec.layout, {responsive: true});
+
+var exitReasonSpec = JSON.parse('__EXIT_REASON_JSON__');
+Plotly.newPlot('chart-exit-reason', exitReasonSpec.data, exitReasonSpec.layout, {responsive: true});
+
+var exitPnlSpec = JSON.parse('__EXIT_PNL_JSON__');
+Plotly.newPlot('chart-exit-pnl', exitPnlSpec.data, exitPnlSpec.layout, {responsive: true});
+
+var monthlyPnlSpec = JSON.parse('__MONTHLY_PNL_JSON__');
+Plotly.newPlot('chart-monthly-pnl', monthlyPnlSpec.data, monthlyPnlSpec.layout, {responsive: true});
 
 function applyFilters() {
   var ticker = document.getElementById('filter-ticker').value.toUpperCase();
@@ -211,6 +251,12 @@ def save_report(
     chart2_json = _build_total_value_chart(portfolio_df, config_dict.get("initial_capital", 500_000))
     trades_html = _render_trades_table(trades_df)
 
+    trade_metrics = _compute_trade_metrics(trades_df)
+    return_dist_json = _build_return_dist_chart(trades_df)
+    exit_reason_json = _build_exit_reason_chart(trades_df)
+    exit_pnl_json = _build_exit_pnl_chart(trades_df)
+    monthly_pnl_json = _build_monthly_pnl_chart(trades_df)
+
     html_content = _render_html(
         run_id=run_id,
         config_dict=config_dict,
@@ -218,6 +264,11 @@ def save_report(
         chart1_json=chart1_json,
         chart2_json=chart2_json,
         trades_html=trades_html,
+        trade_metrics=trade_metrics,
+        return_dist_json=return_dist_json,
+        exit_reason_json=exit_reason_json,
+        exit_pnl_json=exit_pnl_json,
+        monthly_pnl_json=monthly_pnl_json,
     )
 
     out_path = Path(output_dir) / "report.html"
@@ -228,6 +279,149 @@ def save_report(
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+def _compute_trade_metrics(trades_df: pd.DataFrame) -> dict:
+    """Compute win rate, profit factor, payoff ratio, max consecutive losses."""
+    if trades_df.empty:
+        return {
+            "win_rate": "—", "win_rate_class": "neutral",
+            "profit_factor": "—", "profit_factor_class": "neutral",
+            "payoff_ratio": "—",
+            "max_consec_losses": "—",
+        }
+
+    wins = trades_df[trades_df["pnl"] > 0]
+    losses = trades_df[trades_df["pnl"] < 0]
+
+    win_rate = len(wins) / len(trades_df) * 100
+    win_rate_str = f"{win_rate:.1f}%"
+    win_rate_class = "positive" if win_rate >= 50 else "negative"
+
+    if len(losses) > 0 and losses["pnl"].sum() != 0:
+        pf = wins["pnl"].sum() / abs(losses["pnl"].sum())
+        profit_factor_str = f"{pf:.2f}"
+        profit_factor_class = "positive" if pf >= 1.0 else "negative"
+    else:
+        profit_factor_str = "∞"
+        profit_factor_class = "positive"
+
+    if len(wins) > 0 and len(losses) > 0:
+        pr = wins["pnl_pct"].mean() / abs(losses["pnl_pct"].mean())
+        payoff_ratio_str = f"{pr:.2f}"
+    else:
+        payoff_ratio_str = "—"
+
+    pnl_sorted = trades_df.sort_values("entry_date")["pnl"].tolist()
+    is_loss = [v < 0 for v in pnl_sorted]
+    max_consec = max(
+        (sum(1 for _ in g) for k, g in itertools.groupby(is_loss) if k),
+        default=0,
+    )
+
+    return {
+        "win_rate": win_rate_str,
+        "win_rate_class": win_rate_class,
+        "profit_factor": profit_factor_str,
+        "profit_factor_class": profit_factor_class,
+        "payoff_ratio": payoff_ratio_str,
+        "max_consec_losses": str(max_consec),
+    }
+
+
+def _build_return_dist_chart(trades_df: pd.DataFrame) -> str:
+    fig = go.Figure()
+    if not trades_df.empty:
+        pct_values = (trades_df["pnl_pct"] * 100).tolist()
+        p5 = trades_df["pnl_pct"].quantile(0.05) * 100
+        p95 = trades_df["pnl_pct"].quantile(0.95) * 100
+        fig.add_trace(go.Histogram(
+            x=pct_values,
+            nbinsx=30,
+            marker_color="#3b82f6",
+            name="Return",
+        ))
+        fig.add_vline(x=p5, line_dash="dash", line_color="#f59e0b",
+                      annotation_text=f"P5: {p5:.1f}%", annotation_position="top right")
+        fig.add_vline(x=p95, line_dash="dash", line_color="#22c55e",
+                      annotation_text=f"P95: {p95:.1f}%", annotation_position="top left")
+    fig.update_layout(
+        title="Return Distribution",
+        template="plotly_dark",
+        height=300,
+        xaxis_title="Return (%)",
+        xaxis_ticksuffix="%",
+        showlegend=False,
+        margin=dict(l=48, r=16, t=48, b=48),
+    )
+    return _safe_json(fig)
+
+
+def _build_exit_reason_chart(trades_df: pd.DataFrame) -> str:
+    fig = go.Figure()
+    if not trades_df.empty:
+        counts = trades_df["exit_reason"].value_counts()
+        fig.add_trace(go.Bar(
+            x=counts.index.tolist(),
+            y=counts.values.tolist(),
+            marker_color="#3b82f6",
+        ))
+    fig.update_layout(
+        title="Exit Reason Distribution",
+        template="plotly_dark",
+        height=300,
+        xaxis_title="Exit Reason",
+        yaxis_title="# Trades",
+        showlegend=False,
+        margin=dict(l=48, r=16, t=48, b=48),
+    )
+    return _safe_json(fig)
+
+
+def _build_exit_pnl_chart(trades_df: pd.DataFrame) -> str:
+    fig = go.Figure()
+    if not trades_df.empty:
+        reason_pnl = trades_df.groupby("exit_reason")["pnl_pct"].mean() * 100
+        colors = ["#22c55e" if v >= 0 else "#ef4444" for v in reason_pnl.values]
+        fig.add_trace(go.Bar(
+            x=reason_pnl.index.tolist(),
+            y=reason_pnl.values.tolist(),
+            marker_color=colors,
+        ))
+    fig.update_layout(
+        title="Avg Return by Exit Reason",
+        template="plotly_dark",
+        height=300,
+        xaxis_title="Exit Reason",
+        yaxis_ticksuffix="%",
+        showlegend=False,
+        margin=dict(l=48, r=16, t=48, b=48),
+    )
+    return _safe_json(fig)
+
+
+def _build_monthly_pnl_chart(trades_df: pd.DataFrame) -> str:
+    fig = go.Figure()
+    if not trades_df.empty:
+        df = trades_df.copy()
+        df["month"] = pd.to_datetime(df["entry_date"]).dt.to_period("M").astype(str)
+        monthly = df.groupby("month")["pnl"].sum()
+        colors = ["#22c55e" if v >= 0 else "#ef4444" for v in monthly.values]
+        fig.add_trace(go.Bar(
+            x=monthly.index.tolist(),
+            y=monthly.values.tolist(),
+            marker_color=colors,
+        ))
+    fig.update_layout(
+        title="Monthly P&L ($)",
+        template="plotly_dark",
+        height=300,
+        xaxis_title="Month",
+        yaxis_tickprefix="$",
+        showlegend=False,
+        margin=dict(l=64, r=16, t=48, b=48),
+    )
+    return _safe_json(fig)
+
 
 def _build_daily_return_chart(portfolio_df: pd.DataFrame) -> str:
     if portfolio_df.empty:
@@ -272,7 +466,6 @@ def _build_total_value_chart(portfolio_df: pd.DataFrame, initial_capital: float)
         fillcolor="rgba(59,130,246,0.12)",
         name="Portfolio Value",
     ))
-    # Initial capital reference line
     fig.add_hline(
         y=initial_capital,
         line_dash="dash",
@@ -332,6 +525,11 @@ def _render_html(
     chart1_json: str,
     chart2_json: str,
     trades_html: str,
+    trade_metrics: dict,
+    return_dist_json: str,
+    exit_reason_json: str,
+    exit_pnl_json: str,
+    monthly_pnl_json: str,
 ) -> str:
     total_ret = metrics.get("total_return_pct", 0)
     sharpe = metrics.get("sharpe_ratio", 0)
@@ -341,9 +539,8 @@ def _render_html(
     return_class = "positive" if total_ret >= 0 else "negative"
     sharpe_class = "positive" if sharpe >= 1.0 else ("neutral" if sharpe >= 0 else "negative")
 
-    # Escape the JSON strings so they can be safely embedded in JS string literals
-    chart1_escaped = chart1_json.replace("\\", "\\\\").replace("'", "\\'")
-    chart2_escaped = chart2_json.replace("\\", "\\\\").replace("'", "\\'")
+    def _esc_json(j: str) -> str:
+        return j.replace("\\", "\\\\").replace("'", "\\'")
 
     config_pretty = json.dumps(config_dict, indent=2)
 
@@ -355,8 +552,18 @@ def _render_html(
     content = content.replace("__N_TRADES__", str(n_trades))
     content = content.replace("__RETURN_CLASS__", return_class)
     content = content.replace("__SHARPE_CLASS__", sharpe_class)
-    content = content.replace("__DAILY_RETURN_JSON__", chart1_escaped)
-    content = content.replace("__TOTAL_VALUE_JSON__", chart2_escaped)
+    content = content.replace("__WIN_RATE__", trade_metrics["win_rate"])
+    content = content.replace("__WIN_RATE_CLASS__", trade_metrics["win_rate_class"])
+    content = content.replace("__PROFIT_FACTOR__", trade_metrics["profit_factor"])
+    content = content.replace("__PROFIT_FACTOR_CLASS__", trade_metrics["profit_factor_class"])
+    content = content.replace("__PAYOFF_RATIO__", trade_metrics["payoff_ratio"])
+    content = content.replace("__MAX_CONSEC_LOSSES__", trade_metrics["max_consec_losses"])
+    content = content.replace("__DAILY_RETURN_JSON__", _esc_json(chart1_json))
+    content = content.replace("__TOTAL_VALUE_JSON__", _esc_json(chart2_json))
+    content = content.replace("__RETURN_DIST_JSON__", _esc_json(return_dist_json))
+    content = content.replace("__EXIT_REASON_JSON__", _esc_json(exit_reason_json))
+    content = content.replace("__EXIT_PNL_JSON__", _esc_json(exit_pnl_json))
+    content = content.replace("__MONTHLY_PNL_JSON__", _esc_json(monthly_pnl_json))
     content = content.replace("__TRADES_ROWS__", trades_html)
     content = content.replace("__CONFIG_JSON__", html.escape(config_pretty))
     return content
