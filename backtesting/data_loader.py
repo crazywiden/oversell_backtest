@@ -107,5 +107,5 @@ def _build_arrow_filter(start_date, end_date, pa, pc):
         return None
     result = exprs[0]
     for e in exprs[1:]:
-        result = pc.and_(result, e)
+        result = result & e
     return result
