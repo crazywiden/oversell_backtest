@@ -22,7 +22,12 @@ from backtesting.engine import run_backtest
 from backtesting.signals import compute_os_scores
 from results.report import compute_metrics, save_report
 
-RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"
+_default_results = Path(__file__).resolve().parents[1] / "results"
+try:
+    _default_results.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR = _default_results
+except PermissionError:
+    RESULTS_DIR = Path("/tmp/results")
 
 
 def make_run_id() -> str:
