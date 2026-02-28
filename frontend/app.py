@@ -19,7 +19,14 @@ or in .streamlit/secrets.toml locally — never commit that file):
 """
 
 import itertools
+import sys
 from pathlib import Path
+
+# Ensure repo root is on sys.path (needed when Streamlit Community Cloud runs
+# this file directly, which adds frontend/ rather than the repo root to sys.path)
+_root = Path(__file__).resolve().parents[1]
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
 
 import pandas as pd
 import plotly.express as px
