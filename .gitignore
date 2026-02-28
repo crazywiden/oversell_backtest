@@ -1,10 +1,12 @@
-data/raw/*.csv
-data/v1/prices.csv
 results/*/
 venv/
 __pycache__/
 *.pyc
 
 *.csv
+*.parquet
 .DS_Store
 .trees/
+.streamlit/secrets.toml
+
+.env

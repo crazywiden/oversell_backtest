@@ -2,6 +2,20 @@
 Oversell Backtest — Streamlit frontend.
 
 Run: streamlit run frontend/app.py
+
+Streamlit secrets required for Google Drive data (configure in Community Cloud UI
+or in .streamlit/secrets.toml locally — never commit that file):
+
+  drive_file_id = "your-google-drive-file-id"
+
+  [gcp_service_account]
+  type = "service_account"
+  project_id = "..."
+  private_key_id = "..."
+  private_key = "-----BEGIN RSA PRIVATE KEY-----\n..."
+  client_email = "..."
+  client_id = "..."
+  token_uri = "https://oauth2.googleapis.com/token"
 """
 
 import itertools
@@ -16,19 +30,70 @@ from frontend.engine_bridge import BacktestParams, run_backtest
 st.set_page_config(page_title="Oversell Backtest", layout="centered")
 st.title("Oversell Backtest")
 
+
+# ---------------------------------------------------------------------------
+# Google Drive data download (runs once per app session, cached)
+# ---------------------------------------------------------------------------
+@st.cache_resource
+def _get_drive_data() -> "str | None":
+    """Download prices.parquet from Google Drive if secrets are configured."""
+    try:
+        if "gcp_service_account" not in st.secrets:
+            return None
+    except Exception:
+        return None
+
+    import io
+
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaIoBaseDownload
+
+    local_path = Path("/tmp/prices.parquet")
+    if local_path.exists():
+        return str(local_path)
+
+    creds = service_account.Credentials.from_service_account_info(
+        {k: v for k, v in st.secrets["gcp_service_account"].items()},
+        scopes=["https://www.googleapis.com/auth/drive.readonly"],
+    )
+    svc = build("drive", "v3", credentials=creds)
+    request = svc.files().get_media(fileId=st.secrets["drive_file_id"])
+    buf = io.BytesIO()
+    downloader = MediaIoBaseDownload(buf, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    buf.seek(0)
+    local_path.write_bytes(buf.read())
+    return str(local_path)
+
+
 # ---------------------------------------------------------------------------
 # Data path selector
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parents[1]
+_drive_path = _get_drive_data()
 _detected = sorted(str(p.relative_to(_repo_root)) for p in _repo_root.glob("data/*/prices.csv"))
-_options = _detected + ["Custom…"]
+_options = ([_drive_path] if _drive_path else []) + _detected + ["Custom…"]
+
+
+def _label(p: str) -> str:
+    if p == _drive_path:
+        return "Google Drive — prices.parquet"
+    return p
+
 
 if "data_path" not in st.session_state:
-    st.session_state["data_path"] = _detected[0] if _detected else "data/v1/prices.csv"
+    st.session_state["data_path"] = _options[0] if _options else "data/v1/prices.csv"
 
-selected = st.selectbox("Dataset", _options,
-                        index=_options.index(st.session_state["data_path"])
-                        if st.session_state["data_path"] in _options else len(_options) - 1)
+selected = st.selectbox(
+    "Dataset",
+    _options,
+    format_func=_label,
+    index=_options.index(st.session_state["data_path"])
+    if st.session_state["data_path"] in _options else len(_options) - 1,
+)
 
 if selected == "Custom…":
     st.text_input("Custom data path", key="data_path")

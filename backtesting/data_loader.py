@@ -11,17 +11,21 @@ REQUIRED_COLUMNS = {
 
 
 def load_price_data(config: BacktestConfig) -> pd.DataFrame:
-    """Load and validate prices.csv. Returns DataFrame sorted by ticker+date."""
+    """Load and validate price data (parquet or CSV). Returns DataFrame sorted by ticker+date."""
     path = Path(config.data_path)
     if not path.exists():
         raise FileNotFoundError(
-            f"{path} not found. Run: python data/v1/preprocess.py --source fake"
+            f"{path} not found. Run: python data/v3/preprocess.py --source fake"
         )
 
-    df = pd.read_csv(path, parse_dates=["date"])
+    if path.suffix == ".parquet":
+        df = pd.read_parquet(path)
+    else:
+        df = pd.read_csv(path, parse_dates=["date"])
+
     missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
-        raise ValueError(f"prices.csv is missing columns: {missing}")
+        raise ValueError(f"{path.name} is missing columns: {missing}")
 
     df = df.sort_values(["ticker", "date"]).reset_index(drop=True)
 

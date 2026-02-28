@@ -28,7 +28,7 @@ class BacktestConfig:
     max_positions: int = 3
 
     # Paths
-    data_path: str = "data/v1/prices.csv"
+    data_path: str = "data/v3/prices.parquet"
     output_dir: str = ""            # Set by run.py at runtime
 
     # Runtime (set by run.py, not by user)

@@ -23,7 +23,7 @@ class BacktestParams:
     V: int = 500_000
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    data_path: str = "data/v1/prices.csv"
+    data_path: str = "data/v3/prices.parquet"
 
 
 @dataclasses.dataclass
