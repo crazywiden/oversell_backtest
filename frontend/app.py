@@ -20,6 +20,7 @@ or in .streamlit/secrets.toml locally — never commit that file):
 
 import itertools
 import sys
+from datetime import date as _date, timedelta as _timedelta
 from pathlib import Path
 
 # Ensure repo root is on sys.path (needed when Streamlit Community Cloud runs
@@ -145,9 +146,15 @@ with st.form("backtest_form"):
     )
 
     st.subheader("Data Filtering")
+    st.caption(
+        "Default is 2 years to stay within Streamlit Cloud's 1 GB memory limit. "
+        "Extend cautiously — the full dataset is ~5 GB in RAM."
+    )
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        start_date = st.date_input("Start date", value=None)
+        start_date = st.date_input(
+            "Start date", value=_date.today() - _timedelta(days=2 * 365)
+        )
     with col_d2:
         end_date = st.date_input("End date", value=None)
 
