@@ -32,6 +32,7 @@ if str(_root) not in sys.path:
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as _components
 
 from frontend.engine_bridge import BacktestParams, run_backtest
 
@@ -87,6 +88,11 @@ def _get_drive_data() -> "str | None":
 # Data path selector
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parents[1]
+# Prod mode: running on Streamlit Cloud (path is /mount/src/...).
+# Local mode: running on developer machine.
+# In prod, the report HTML is embedded inline since file paths can't be opened in a browser.
+_IS_PROD = str(_repo_root).startswith("/mount/src")
+
 _drive_path = _get_drive_data()
 _detected = sorted(str(p.relative_to(_repo_root)) for p in _repo_root.glob("data/*/prices.csv"))
 _options = ([_drive_path] if _drive_path else []) + _detected + ["Custom…"]
@@ -233,10 +239,22 @@ if "last_result" in st.session_state:
             str(result.n_trades) if result.n_trades is not None else "—",
         )
 
-        # Report path
-        st.markdown("**Report saved to:**")
-        st.code(result.report_path)
-        st.caption("Open the path above in your browser to view the interactive report.")
+        # Interactive report — embed inline on Streamlit Cloud; show path locally
+        if _IS_PROD:
+            _report_path = Path(result.report_path)
+            if _report_path.exists():
+                st.subheader("Interactive Report")
+                _components.html(
+                    _report_path.read_text(encoding="utf-8"),
+                    height=1600,
+                    scrolling=True,
+                )
+            else:
+                st.warning("Report file not found.")
+        else:
+            st.markdown("**Report saved to:**")
+            st.code(result.report_path)
+            st.caption("Open the path above in your browser to view the interactive report.")
 
         # ---------------------------------------------------------------------------
         # Trade analysis
