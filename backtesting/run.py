@@ -22,12 +22,22 @@ from backtesting.engine import run_backtest
 from backtesting.signals import compute_os_scores
 from results.report import compute_metrics, save_report
 
-_default_results = Path(__file__).resolve().parents[1] / "results"
-try:
-    _default_results.mkdir(parents=True, exist_ok=True)
-    RESULTS_DIR = _default_results
-except PermissionError:
-    RESULTS_DIR = Path("/tmp/results")
+def _resolve_results_dir() -> Path:
+    """Return a writable results directory, falling back to /tmp/results."""
+    candidate = Path(__file__).resolve().parents[1] / "results"
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+        probe = candidate / ".write_probe"
+        probe.touch()
+        probe.unlink()
+        return candidate
+    except (PermissionError, OSError):
+        fallback = Path("/tmp/results")
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+RESULTS_DIR = _resolve_results_dir()
 
 
 def make_run_id() -> str:

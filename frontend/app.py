@@ -50,30 +50,36 @@ def _get_drive_data() -> "str | None":
     except Exception:
         return None
 
-    import io
+    try:
+        import io
 
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseDownload
 
-    local_path = Path("/tmp/prices.parquet")
-    if local_path.exists():
+        local_path = Path("/tmp/prices.parquet")
+        if local_path.exists():
+            return str(local_path)
+
+        creds = service_account.Credentials.from_service_account_info(
+            {k: v for k, v in st.secrets["gcp_service_account"].items()},
+            scopes=["https://www.googleapis.com/auth/drive.readonly"],
+        )
+        svc = build("drive", "v3", credentials=creds)
+        request = svc.files().get_media(fileId=st.secrets["drive_file_id"])
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        buf.seek(0)
+        local_path.write_bytes(buf.read())
         return str(local_path)
-
-    creds = service_account.Credentials.from_service_account_info(
-        {k: v for k, v in st.secrets["gcp_service_account"].items()},
-        scopes=["https://www.googleapis.com/auth/drive.readonly"],
-    )
-    svc = build("drive", "v3", credentials=creds)
-    request = svc.files().get_media(fileId=st.secrets["drive_file_id"])
-    buf = io.BytesIO()
-    downloader = MediaIoBaseDownload(buf, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    buf.seek(0)
-    local_path.write_bytes(buf.read())
-    return str(local_path)
+    except Exception as exc:
+        # Cannot call st.* inside @st.cache_resource; log to stderr and return None
+        import sys
+        print(f"[drive] load failed: {exc}", file=sys.stderr)
+        return None
 
 
 # ---------------------------------------------------------------------------
