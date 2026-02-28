@@ -2,9 +2,6 @@ from pathlib import Path
 import gc
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.compute as pc
-import pyarrow.parquet as pq
 
 from backtesting.config import BacktestConfig
 
@@ -60,7 +57,13 @@ def _read_parquet_chunked(
     Category columns (ticker, name, sector, industry) are cast AFTER concat
     by load_price_data() so the category index is unified across all chunks.
     """
-    arrow_filter = _build_arrow_filter(start_date, end_date)
+    # Lazy imports — keep pyarrow out of module-level scope so import errors
+    # surface as backtest errors (caught by engine_bridge), not startup crashes.
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    arrow_filter = _build_arrow_filter(start_date, end_date, pa, pc)
     pf = pq.ParquetFile(path)
     chunks: list[pd.DataFrame] = []
 
@@ -89,10 +92,7 @@ def _read_parquet_chunked(
     return df
 
 
-def _build_arrow_filter(
-    start_date: "str | None",
-    end_date: "str | None",
-) -> "pc.Expression | None":
+def _build_arrow_filter(start_date, end_date, pa, pc):
     """Build a PyArrow filter expression from optional ISO date strings."""
     exprs = []
     if start_date:
